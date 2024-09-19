@@ -4,14 +4,17 @@ import select
 import socket
 import struct
 import warnings
+# WINDOWS
 import time
+import netifaces as ni
+
 from typing import List, Optional, Tuple, Union
 
 import can
 from can import BusABC, CanProtocol
 from can.typechecking import AutoDetectedConfig
 
-from .utils import check_msgpack_installed, pack_message, unpack_message
+from can.interfaces.udp_multicast.utils import check_msgpack_installed, pack_message, unpack_message
 
 try:
     from fcntl import ioctl
@@ -33,7 +36,7 @@ SO_TIMESTAMPNS = 35
 SIOCGSTAMP = 0x8906
 
 
-class UdpMulticastBus(BusABC):
+class UdpMulticastBus_Windows(BusABC):
     """A virtual interface for CAN communications between multiple processes using UDP over Multicast IP.
 
     It supports IPv4 and IPv6, specified via the channel (which really is just a multicast IP address as a
@@ -48,8 +51,8 @@ class UdpMulticastBus(BusABC):
     .. note::
         The auto-detection of available interfaces (see) is implemented using heuristic that checks if the
         required socket operations are available. It then returns two configurations, one based on
-        the :attr:`~UdpMulticastBus.DEFAULT_GROUP_IPv6` address and another one based on
-        the :attr:`~UdpMulticastBus.DEFAULT_GROUP_IPv4` address.
+        the :attr:`~UdpMulticastBus_Windows.DEFAULT_GROUP_IPv6` address and another one based on
+        the :attr:`~UdpMulticastBus_Windows.DEFAULT_GROUP_IPv4` address.
 
     .. warning::
         The parameter `receive_own_messages` is currently unsupported and setting it to `True` will raise an
@@ -64,7 +67,7 @@ class UdpMulticastBus(BusABC):
                     This defines which version of IP is used. See
                     `Wikipedia ("Multicast address") <https://en.wikipedia.org/wiki/Multicast_address>`__
                     for more details on the addressing schemes.
-                    Defaults to :attr:`~UdpMulticastBus.DEFAULT_GROUP_IPv6`.
+                    Defaults to :attr:`~UdpMulticastBus_Windows.DEFAULT_GROUP_IPv6`.
     :param port: The IP port to read from and write to.
     :param hop_limit: The hop limit in IPv6 or in IPv4 the time to live (TTL).
     :param receive_own_messages: If transmitted messages should also be received by this bus.
@@ -94,7 +97,7 @@ class UdpMulticastBus(BusABC):
         self,
         channel: str = DEFAULT_GROUP_IPv6,
         port: int = 43113,
-        hop_limit: int = 1,
+        hop_limit: int = 32,
         receive_own_messages: bool = False,
         fd: bool = True,
         **kwargs,
@@ -111,7 +114,7 @@ class UdpMulticastBus(BusABC):
             **kwargs,
         )
 
-        self._multicast = GeneralPurposeUdpMulticastBus(channel, port, hop_limit)
+        self._multicast = GeneralPurposeUdpMulticastBus_Windows(channel, port, hop_limit)
         self._can_protocol = CanProtocol.CAN_FD if fd else CanProtocol.CAN_20
 
     @property
@@ -172,11 +175,11 @@ class UdpMulticastBus(BusABC):
             return [
                 {
                     "interface": "udp_multicast",
-                    "channel": UdpMulticastBus.DEFAULT_GROUP_IPv6,
+                    "channel": UdpMulticastBus_Windows.DEFAULT_GROUP_IPv6,
                 },
                 {
                     "interface": "udp_multicast",
-                    "channel": UdpMulticastBus.DEFAULT_GROUP_IPv4,
+                    "channel": UdpMulticastBus_Windows.DEFAULT_GROUP_IPv4,
                 },
             ]
 
@@ -184,7 +187,7 @@ class UdpMulticastBus(BusABC):
         return []
 
 
-class GeneralPurposeUdpMulticastBus:
+class GeneralPurposeUdpMulticastBus_Windows:
     """A general purpose send and receive handler for multicast over IP/UDP.
 
     However, it raises CAN-specific exceptions for convenience.
@@ -285,12 +288,20 @@ class GeneralPurposeUdpMulticastBus:
 
             # Bind it to the port (on any interface)
             sock.bind(("", self.port))
+            
+            # Set some more multicast options
+            x = ni.gateways() 
+            y = x['default'][2][1] 
+            intf = ni.ifaddresses(y)[ni.AF_INET][0]['addr']
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(intf) + socket.inet_aton('0.0.0.0'))
 
             # Join the multicast group
             group_as_binary = socket.inet_pton(address_family, self.group)
             if self.ip_version == 4:
-                request = group_as_binary + struct.pack("@I", socket.INADDR_ANY)
-                sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, request)
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                    socket.inet_aton(self.group) + socket.inet_aton(intf))
+                #request = group_as_binary + struct.pack("@I", socket.INADDR_ANY)
+                #sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, request)
             else:
                 request = group_as_binary + struct.pack("@I", 0)
                 sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP, request)
