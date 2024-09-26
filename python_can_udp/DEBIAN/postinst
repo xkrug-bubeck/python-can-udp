@@ -1,0 +1,16 @@
+#!/bin/sh
+# postinst script for python_can_udp
+#
+# see: dh_installdeb(1)
+
+set -e
+
+
+if [ "$1" = "configure" ] ; then
+	  python3 -m pip install python-can msgpack
+	  systemctl daemon-reload
+	  systemctl enable python_can_udp.service
+	  systemctl start python_can_udp.service
+fi
+
+exit 0
