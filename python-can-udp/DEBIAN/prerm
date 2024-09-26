@@ -1,0 +1,11 @@
+#!/bin/sh
+# prerm script for sysmon
+
+set -e
+
+systemctl stop python-can-udp.service
+systemctl disable python-can-udp.service
+
+rm -rf /opt/python-can-udp/__pycache__
+
+exit 0

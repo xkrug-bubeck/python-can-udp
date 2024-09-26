@@ -1,0 +1,12 @@
+[Unit]
+Description=XKrug System monitor service
+ConditionPathExists=/opt/python-can-udp/caneth_linux.py
+Requires=network-online.target systemd-modules-load.service
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/python-can-udp/caneth_linux.py
+StandardOutput=null
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
